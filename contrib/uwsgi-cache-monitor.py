@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import mmap
 import os
 import struct
@@ -108,6 +110,17 @@ class Cache:
             d['block_sizes'] / d['samples'] * 8
         ))
 
+    def show_dump(self):
+        d = self.dump()
+        print()
+        print("Recorded %d samples (%d second(s) sleep between samples)" % \
+            (d['samples'], d['sample_sleep']))
+        print("Cache empty %d times, full %d times, %.2f items on average" % \
+            (d['cache_empty'], d['cache_full'], d['cache_items'] / d['samples']))
+        print("Block size average size: %d bytes" % \
+            (d['block_sizes'] / d['cache_items'] * 8))
+        print("Data in cache average: %d bytes" % \
+            (d['block_sizes'] / d['samples'] * 8))
 
 def main(options):
     cache = Cache(options.cache_store, options.cache_slots, options.block_size,

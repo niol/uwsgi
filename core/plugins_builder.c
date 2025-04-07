@@ -90,7 +90,7 @@ void uwsgi_build_plugin(char *directory) {
 	char *argv[6];
 
 	argv[0] = getenv("PYTHON");
-	if (!argv[0]) argv[0] = "python";
+	if (!argv[0]) argv[0] = "python3";
 
 	argv[1] = UWSGI_BUILD_DIR "/uwsgiconfig.py";
 	argv[2] = "--extra-plugin";

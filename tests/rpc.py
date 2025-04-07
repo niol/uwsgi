@@ -6,5 +6,4 @@ def hello():
 
 print(uwsgi.register_rpc("hello", hello))
 
-
 print(uwsgi.rpc(None, "hello"))
