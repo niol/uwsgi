@@ -2,8 +2,16 @@ import sys
 import os
 sys.path.insert(0, '.')
 sys.path.extend(os.environ.get('PYTHONPATH', '').split(os.pathsep))
-import imp
+import importlib
+import types
 import traceback
+
+
+if sys.argv[1] == "compile":
+    COMPILE_MODE = True
+
+else:
+    COMPILE_MODE = False
 
 
 __name__ = '__main__'
@@ -33,23 +41,45 @@ extern void (*uwsgi_pypy_hook_request)(struct wsgi_request *);
 extern void (*uwsgi_pypy_post_fork_hook)(void);
 '''
 
-# here we load CFLAGS and uwsgi.h from the binary
-defines0 = '''
-char *uwsgi_get_cflags();
-char *uwsgi_get_dot_h();
-'''
-ffi.cdef(defines0)
-lib0 = ffi.verify(defines0)
-
 
 # this is ugly, we should find a better approach
 # basically it build a list of #define from binary CFLAGS
 uwsgi_cdef = []
 uwsgi_defines = []
-uwsgi_cflags = ffi.string(lib0.uwsgi_get_cflags()).split()
+uwsgi_dot_h = None
+
+
+if COMPILE_MODE:
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "uwsgi.h")) as f:
+        uwsgi_dot_h = f.read()
+
+    uwsgi_cflags_unclean = sys.argv[2:]
+    uwsgi_cflags = []
+    for cflag in uwsgi_cflags_unclean:
+        if " " in cflag:
+            for cf in cflag.split(" "):
+                uwsgi_cflags.append(cf)
+        else:
+            uwsgi_cflags.append(cflag)
+else:
+    # We can assume uwsgi.h is not available, so we get it from the uwsgi
+    # binary.
+
+    # here we load CFLAGS and uwsgi.h from the binary
+    defines0 = '''
+    char *uwsgi_get_cflags();
+    char *uwsgi_get_dot_h();
+    '''
+    ffi.cdef(defines0)
+    lib0 = ffi.verify(defines0)
+
+    uwsgi_dot_h = ffi.string(lib0.uwsgi_get_dot_h()).decode()
+    uwsgi_cflags = ffi.string(lib0.uwsgi_get_cflags()).decode().split()
+
+
 for cflag in uwsgi_cflags:
-    if cflag.startswith(b'-D'):
-        line = cflag[2:].decode()
+    if cflag.startswith('-D'):
+        line = cflag[2:]
         if '=' in line:
             (key, value) = line.split('=', 1)
             uwsgi_cdef.append('#define %s ...' % key)
@@ -57,10 +87,10 @@ for cflag in uwsgi_cflags:
         else:
             uwsgi_cdef.append('#define %s ...' % line)
             uwsgi_defines.append('#define %s 1' % line)
-uwsgi_dot_h = ffi.string(lib0.uwsgi_get_dot_h())
+
 
 # uwsgi definitions
-cdefines = '''
+uwsgi_cdefines = '''
 %s
 
 struct iovec {
@@ -259,7 +289,9 @@ int64_t uwsgi_metric_get(char *, char *);
 
 %s
 
-''' % ('\n'.join(uwsgi_cdef), hooks)
+'''
+
+cdefines = uwsgi_cdefines % ('\n'.join(uwsgi_cdef), hooks)
 
 cverify = '''
 %s
@@ -271,10 +303,20 @@ const char *uwsgi_pypy_version = UWSGI_VERSION;
 extern struct uwsgi_server uwsgi;
 extern struct uwsgi_plugin pypy_plugin;
 %s
-''' % ('\n'.join(uwsgi_defines), uwsgi_dot_h.decode(), hooks)
+''' % ('\n'.join(uwsgi_defines), uwsgi_dot_h, hooks)
+
 
 ffi.cdef(cdefines)
-lib = ffi.verify(cverify)
+
+
+if COMPILE_MODE:
+    ffi.set_source("uwsgi_pypy", cverify)
+    ffi.compile(verbose=True)
+    lib = dlopen("pypy_setup.py.so")
+else:
+    lib = ffi.verify(cverify)
+
+
 libc = ffi.dlopen(None)
 
 
@@ -324,7 +366,10 @@ def uwsgi_pypy_file_loader(filename):
     global wsgi_application
     w = ffi.string(filename)
     c = 'application'
-    mod = imp.load_source('uwsgi_file_wsgi', w.decode())
+    loader = importlib.machinery.SourceFileLoader("uwsgi_file_uwsgi", w.decode())
+    spec = importlib.util.spec_from_file_location("uwsgi_file_uwsgi", filename, loader=loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
     wsgi_application = getattr(mod, c)
 
 
@@ -530,7 +575,7 @@ lib.uwsgi_pypy_post_fork_hook = uwsgi_pypy_post_fork_hook
 Here we define the "uwsgi" virtual module
 """
 
-uwsgi = imp.new_module('uwsgi')
+uwsgi = types.ModuleType("uwsgi")
 sys.modules['uwsgi'] = uwsgi
 uwsgi.version = ffi.string(lib.uwsgi_pypy_version)
 uwsgi.hostname = ffi.string(lib.uwsgi.hostname)
