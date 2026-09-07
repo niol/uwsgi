@@ -319,6 +319,11 @@ void init_pyargv() {
 
 	char *argv0 = "uwsgi";
 
+    PyStatus status;
+    PyConfig config;
+
+    PyConfig_InitPythonConfig(&config);
+
 	if (up.pyrun) {
 		argv0 = up.pyrun;
 	}
@@ -388,7 +393,20 @@ void init_pyargv() {
 
 	}
 
-	PySys_SetArgv(up.argc, up.py_argv);
+    status = PyConfig_SetArgv(&config, up.argc, up.py_argv);
+
+    if (PyStatus_Exception(status)) {
+        PyConfig_Clear(&config);
+        exit(1);
+    }
+
+    status = Py_InitializeFromConfig(&config);
+    if (PyStatus_Exception(status)) {
+        PyConfig_Clear(&config);
+        exit(1);
+    }
+
+    PyConfig_Clear(&config);
 
 	PyObject *sys_dict = get_uwsgi_pydict("sys");
 	if (!sys_dict) {

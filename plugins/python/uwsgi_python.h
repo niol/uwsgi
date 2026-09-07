@@ -253,6 +253,8 @@ struct uwsgi_python {
 
 	int reload_os_env;
 
+    int dont_load_site;
+
 	PyObject *after_req_hook;
 	PyObject *after_req_hook_args;
 
